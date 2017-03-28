@@ -34,8 +34,8 @@ class DataLoader:
         self._screen = self._ga.get_screen()
 
     @staticmethod
-    def save_scalers(scalers):
-        pickle.dump(open('scalers.pkl', 'w'), scalers)
+    def save_scalers(user, scalers):
+        pickle.dump(scalers, open('scalers_{}.pkl'.format(user), 'w'))
 
     @staticmethod
     def load_scalers():
@@ -110,7 +110,7 @@ class DataLoader:
         location_lat, location_lon, lat_scaler, lon_scaler = self.load_location(user)
 
         # Save scalers for later use
-        self.save_scalers([cpm_scaler, step_scaler, activity_scaler, screen_scaler, lat_scaler, lon_scaler])
+        self.save_scalers(user, [cpm_scaler, step_scaler, activity_scaler, screen_scaler, lat_scaler, lon_scaler])
 
         # Limit data to inner bounds
         first_idx = np.max(pd.to_datetime((cpm.index[0],
