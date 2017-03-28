@@ -10,8 +10,8 @@ import pandas as pd
 
 from goactiwe import GoActiwe
 from goactiwe.steps import remove_drops
-from goactiwe.preprocessing import MinMaxNormalize
 import dask.dataframe as dd
+from fastparquet import write
 
 
 def fill_df_with_datetime_vars(df):
@@ -26,7 +26,8 @@ def fill_df_with_datetime_vars(df):
 
 
 class DataLoader:
-    def __init__(self):
+    def __init__(self, logger=None):
+        self.log = logger.info or print
         self._ga = GoActiwe()
         self._location = self._ga.get_location()
         self._activity = self._ga.get_activity()
@@ -52,11 +53,8 @@ class DataLoader:
 
         cpm = load_smartphone_cpm(user)
         cpm = fill_df_with_datetime_vars(cpm)
-
         cpm = cpm.pivot_table(index='date', columns='5min', values='cpm', aggfunc=np.sum)
-        cpm_scaler = MinMaxNormalize()
-        cpm = cpm_scaler.fit_transform(cpm)
-        return cpm, cpm_scaler
+        return cpm
 
     def load_location(self, user):
         location = self._location.copy()
@@ -67,12 +65,7 @@ class DataLoader:
         location_pt_lon = location.pivot_table(index='date', columns='5min', values='lon', aggfunc='median')
         location_pt_lat = location.pivot_table(index='date', columns='5min', values='lat', aggfunc='median')
 
-        location_lon_scaler = MinMaxNormalize()
-        location_lat_scaler = MinMaxNormalize()
-
-        return location_lat_scaler.fit_transform(location_pt_lat), \
-               location_lon_scaler.fit_transform(location_pt_lon), \
-               location_lat_scaler, location_lon_scaler
+        return location_pt_lat, location_pt_lon
 
     def load_activity(self, user):
         activity = self._activity.copy()
@@ -80,8 +73,7 @@ class DataLoader:
         activity = activity[activity.confidence > 70]
         activity = fill_df_with_datetime_vars(activity)
         activity = activity.pivot_table(index='date', columns='5min', values='activity', aggfunc='median')
-        activity_scaler = MinMaxNormalize()
-        return activity_scaler.fit_transform(activity), activity_scaler
+        return activity
 
     def load_steps(self, user):
         steps = self._steps.copy()
@@ -90,8 +82,7 @@ class DataLoader:
         steps = steps[steps.step_count < steps.step_count.mean() + 2 * steps.step_count.std()]
         steps = fill_df_with_datetime_vars(steps)
         steps = steps.pivot_table(index='date', columns='5min', values='step_count', aggfunc='sum')
-        steps_scaler = MinMaxNormalize()
-        return steps_scaler.fit_transform(steps), steps_scaler
+        return steps
 
     def load_screen(self, user):
         screen = self._screen.copy()
@@ -99,18 +90,14 @@ class DataLoader:
         screen = screen.groupby(pd.TimeGrouper('15min')).filter(lambda x: x.screen_on.sum() < 20)
         screen = fill_df_with_datetime_vars(screen)
         screen = screen.pivot_table(index='date', columns='5min', values='screen_on', aggfunc='sum')
-        screen_scaler = MinMaxNormalize()
-        return screen_scaler.fit_transform(screen), screen_scaler
+        return screen
 
-    def collect_modalities(self, user):
-        cpm, cpm_scaler = self.load_cpm(user)
-        steps, step_scaler = self.load_steps(user)
-        activity, activity_scaler = self.load_activity(user)
-        screen, screen_scaler = self.load_screen(user)
-        location_lat, location_lon, lat_scaler, lon_scaler = self.load_location(user)
-
-        # Save scalers for later use
-        self.save_scalers(user, [cpm_scaler, step_scaler, activity_scaler, screen_scaler, lat_scaler, lon_scaler])
+    def collect_modalities_in_panel(self, user):
+        cpm = self.load_cpm(user)
+        steps = self.load_steps(user)
+        activity = self.load_activity(user)
+        screen = self.load_screen(user)
+        location_lat, location_lon = self.load_location(user)
 
         # Limit data to inner bounds
         first_idx = np.max(pd.to_datetime((cpm.index[0],
@@ -136,9 +123,24 @@ class DataLoader:
     def load_all(self):
         data = list()
         for user in self._ga.done:
-            data.append(self.collect_modalities(user).as_matrix())
-
+            data.append(self.collect_modalities_in_panel(user).as_matrix())
         return np.concatenate(data, axis=0)
+
+    def save_all(self):
+        data_dir = os.path.join(os.pardir, os.pardir, 'data', 'interim')
+
+        for att in ['cpm', 'steps']:
+            self.log(att)
+            list_of_frames = list()
+            for user in self._ga.done:
+                self.log(user)
+                list_of_frames.append(getattr(self, 'load_{}'.format(att))(user).assign(user=user))
+
+            write(filename=os.path.join(data_dir, att),
+                  data=pd.concat(list_of_frames),
+                  partition_on=['user'],
+                  has_nulls=True,
+                  file_scheme='hive')
 
 
 def main():
@@ -146,11 +148,10 @@ def main():
         cleaned data ready to be analyzed (saved in ../processed).
     """
     logger = logging.getLogger(__name__)
-    logger.info('making final data set from raw data')
+    logger.info('Making final data set from raw data')
 
-    dataloader = DataLoader()
-    data = dataloader.load_all()
-    np.save(os.path.join(os.pardir, os.pardir, 'data', 'processed', 'data.npy'), data)
+    dataloader = DataLoader(logger)
+    dataloader.save_all()
 
 
 if __name__ == '__main__':
