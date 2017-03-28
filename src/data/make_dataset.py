@@ -44,7 +44,7 @@ class DataLoader:
     @staticmethod
     def load_cpm(user):
         def load_smartphone_cpm(user):
-            cpm_root_dir = 'data/cpm/smartphone/20170222110955/'
+            cpm_root_dir = '/home/sdka/data/cpm/smartphone/20170222110955/'
             df = dd.read_csv(os.path.join(cpm_root_dir, str(user), '*.csv'))
             df = df.compute().set_index('timestamp')
             df.index = pd.to_datetime(df.index)
