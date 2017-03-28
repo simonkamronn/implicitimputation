@@ -56,16 +56,21 @@ class DataLoader:
         cpm = cpm.pivot_table(index='date', columns='5min', values='cpm', aggfunc=np.sum)
         return cpm
 
-    def load_location(self, user):
+    def load_location_lat(self, user):
         location = self._location.copy()
         location = location[location.user == user]
         location = location[location.accuracy < 50]
         location = fill_df_with_datetime_vars(location)
-
-        location_pt_lon = location.pivot_table(index='date', columns='5min', values='lon', aggfunc='median')
         location_pt_lat = location.pivot_table(index='date', columns='5min', values='lat', aggfunc='median')
+        return location_pt_lat
 
-        return location_pt_lat, location_pt_lon
+    def load_location_lon(self, user):
+        location = self._location.copy()
+        location = location[location.user == user]
+        location = location[location.accuracy < 50]
+        location = fill_df_with_datetime_vars(location)
+        location_pt_lon = location.pivot_table(index='date', columns='5min', values='lon', aggfunc='median')
+        return location_pt_lon
 
     def load_activity(self, user):
         activity = self._activity.copy()
@@ -129,16 +134,19 @@ class DataLoader:
     def save_all(self):
         data_dir = os.path.join(os.pardir, os.pardir, 'data', 'interim')
 
-        for att in ['cpm', 'steps']:
+        for att in ['cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon']:
             self.log(att)
             list_of_frames = list()
             for user in self._ga.done:
                 self.log(user)
                 list_of_frames.append(getattr(self, 'load_{}'.format(att))(user).assign(user=user))
 
-            write(filename=os.path.join(data_dir, att),
-                  data=pd.concat(list_of_frames),
-                  partition_on=['user'],
+            df = pd.concat(list_of_frames).assign(modality=att)
+            df.columns = [str(c) for c in df.columns]
+
+            write(filename=data_dir,
+                  data=df,
+                  partition_on=['modality', 'user'],
                   has_nulls=True,
                   file_scheme='hive')
 
