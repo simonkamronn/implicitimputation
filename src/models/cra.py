@@ -46,37 +46,32 @@ n_samples, n_bins, n_mods = data.shape
 n_features = n_bins * n_mods
 
 # Create mask
-mask = ~np.isnan(data).reshape(n_samples, n_features) * 1.
+mask = ~np.isnan(data).astype(np.int32)
 
 # Normalize
 data = np.nan_to_num(data)
-data = MinMaxScaler().fit_transform(data.reshape(n_samples*n_bins, n_mods)).reshape(n_samples, n_features)
+data = MinMaxScaler().fit_transform(data.reshape(-1, n_mods)).reshape(n_samples, n_features)
 
 # Random split
-# train_data, test_data, train_mask, test_mask = train_test_split(data, mask, train_size=0.9)
-
-# Sequential split
-train_data, test_data = data[:int(n_samples * 0.9)], data[int(n_samples * 0.9):]
-train_mask, test_mask = mask[:int(n_samples * 0.9)], mask[int(n_samples * 0.9):]
-
+train_data, test_data, train_mask, test_mask = train_test_split(data, mask, train_size=0.9)
 num_train = train_data.shape[0] // args.batch_size
 num_test = test_data.shape[0] // args.batch_size
 
 # Convert to torch tensor
 train_data = torch.from_numpy(train_data)
 test_data = torch.from_numpy(test_data)
-train_mask = torch.from_numpy(train_mask).float()
-test_mask = torch.from_numpy(test_mask).float()
+train_mask = torch.from_numpy(train_mask).gt(-2)
+test_mask = torch.from_numpy(test_mask).gt(-2)
 
 
-class VAE(nn.Module):
+class CRA(nn.Module):
     def __init__(self, dropout=.0):
-        super(VAE, self).__init__()
+        super(CRA, self).__init__()
         self.dropout = dropout
         self.fc1 = nn.Linear(n_features, 400)
-        self.fc21 = nn.Linear(400, 10)
-        self.fc22 = nn.Linear(400, 10)
-        self.fc3 = nn.Linear(10, 400)
+        self.fc21 = nn.Linear(400, 20)
+        self.fc22 = nn.Linear(400, 20)
+        self.fc3 = nn.Linear(20, 400)
         self.fc4 = nn.Linear(400, n_features)
 
     def encode(self, x):
@@ -94,7 +89,7 @@ class VAE(nn.Module):
 
     def decode(self, z):
         h3 = F.relu(self.fc3(z))
-        return F.sigmoid(self.fc4(h3))
+        return self.fc4(h3)
 
     def forward(self, x):
         # Apply input dropout
@@ -104,7 +99,7 @@ class VAE(nn.Module):
         return self.decode(z), mu, logvar
 
 
-model = VAE(dropout=args.dropout)
+model = CRA(dropout=args.dropout)
 if args.cuda:
     model.cuda()
 
@@ -116,11 +111,11 @@ def get_batch(source, mask, i, evaluation=False):
 
 # Mean Squared Error loss for reconstruction
 reconstruction_loss = torch.nn.MSELoss()
-reconstruction_loss.sizeAverage = False
 
 
 def loss_function(recon_x, x, mu, logvar, mask):
-    recon_loss = reconstruction_loss(recon_x * mask, x * mask) / mask.sum()
+    recon_loss = reconstruction_loss(torch.masked_select(recon_x, mask),
+                                     torch.masked_select(x, mask))
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -156,7 +151,7 @@ def train(epoch):
                 100. * batch_idx / num_train,
                 loss.data[0] / len(data)))
 
-    print('====> Epoch: {} Average loss: {:.6f}'.format(
+    print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(train_data)))
 
 
@@ -171,7 +166,7 @@ def test(epoch):
         test_loss += loss_function(recon_batch, data, mu, logvar, mask).data[0]
 
     test_loss /= len(test_data)
-    print('====> Test set loss: {:.6f}'.format(test_loss))
+    print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
 for epoch in range(1, args.epochs + 1):
@@ -182,9 +177,10 @@ for epoch in range(1, args.epochs + 1):
 test_batch, test_mask_batch = get_batch(test_data, test_mask, 1, evaluation=True)
 recon_batch, mu, logvar = model(test_batch)
 
-fig, ax = plt.subplots(nrows=2, ncols=6, figsize=(60, 20))
-for i in range(6):
-    sns.heatmap((test_batch * test_mask_batch).data.numpy().reshape(-1, n_bins, n_mods)[:, :, i], ax=ax[0, i])
-    sns.heatmap((recon_batch * test_mask_batch).data.numpy().reshape(-1, n_bins, n_mods)[:, :, i], ax=ax[1, i])
+fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(30, 30))
+sns.heatmap(test_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 0], ax=ax[0, 0])
+sns.heatmap(recon_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 1], ax=ax[0, 1])
+sns.heatmap(test_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 2], ax=ax[1, 0])
+sns.heatmap(recon_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 2], ax=ax[1, 1])
 
 plt.savefig('recon_heatmap')

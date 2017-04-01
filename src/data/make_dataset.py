@@ -11,7 +11,7 @@ import pandas as pd
 from goactiwe import GoActiwe
 from goactiwe.steps import remove_drops
 import dask.dataframe as dd
-from fastparquet import write
+from fastparquet import write, ParquetFile
 
 
 def fill_df_with_datetime_vars(df):
@@ -132,9 +132,9 @@ class DataLoader:
         return np.concatenate(data, axis=0)
 
     def save_all(self):
-        data_dir = os.path.join(os.pardir, os.pardir, 'data', 'interim')
+        data_dir = os.path.join(project_dir, 'data', 'interim', 'data.parq')
 
-        for att in ['cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon']:
+        for att in ['screen', 'cpm', 'steps', 'activity', 'location_lat', 'location_lon']:
             self.log(att)
             list_of_frames = list()
             for user in self._ga.done:
@@ -146,9 +146,32 @@ class DataLoader:
 
             write(filename=data_dir,
                   data=df,
-                  partition_on=['modality', 'user'],
+                  partition_on=['user', 'modality'],
                   has_nulls=True,
-                  file_scheme='hive')
+                  file_scheme='hive',
+                  append=os.path.exists(data_dir))
+
+    @staticmethod
+    def convert_to_npy(df=None, save=True):
+        if df is None:
+            df = ParquetFile(os.path.join(project_dir, 'data', 'interim', 'data.parq')).to_pandas().set_index('date')
+
+        user_data = list()
+        for user, group in df.groupby(['user']):
+            modality_data = list()
+            for modality, m_group in group.groupby('modality'):
+                modality_data.append(m_group.drop(['modality'], axis=1))
+
+            # We concatenate on dates to ensure the same dimension across modalities
+            user_data.append(pd.concat(modality_data, axis=1).values
+                             .reshape(-1, len(modality_data), 289)
+                             .transpose(0, 2, 1))
+
+        data = np.concatenate(user_data, axis=0)
+        if save:
+            np.save(os.path.join(project_dir, 'data', 'interim', 'data.npy'), data)
+
+        return data
 
 
 def main():
@@ -158,8 +181,10 @@ def main():
     logger = logging.getLogger(__name__)
     logger.info('Making final data set from raw data')
 
-    dataloader = DataLoader(logger)
-    dataloader.save_all()
+    # dataloader = DataLoader(logger)
+    # dataloader.save_all()
+
+    DataLoader.convert_to_npy()
 
 
 if __name__ == '__main__':
