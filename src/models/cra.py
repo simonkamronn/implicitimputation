@@ -15,9 +15,9 @@ import seaborn as sns
 
 
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--epochs', type=int, default=5, metavar='N',
+parser.add_argument('--epochs', type=int, default=50, metavar='N',
                     help='number of epochs to train (default: 2)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -25,7 +25,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--dropout', type=float, default=.3, metavar='dropout', help='input dropout')
+parser.add_argument('--dropout', type=float, default=.8, metavar='dropout', help='input dropout')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -46,62 +46,64 @@ n_samples, n_bins, n_mods = data.shape
 n_features = n_bins * n_mods
 
 # Create mask
-mask = ~np.isnan(data).astype(np.int32)
+mask = ~np.isnan(data).reshape(n_samples, n_features) * 1.
+# print(mask.sum(axis=1))
 
 # Normalize
 data = np.nan_to_num(data)
-data = MinMaxScaler().fit_transform(data.reshape(-1, n_mods)).reshape(n_samples, n_features)
+data = MinMaxScaler().fit_transform(data.reshape(n_samples*n_bins, n_mods)).reshape(n_samples, n_features)
 
 # Random split
 train_data, test_data, train_mask, test_mask = train_test_split(data, mask, train_size=0.9)
+
+# Sequential split
+# train_data, test_data = data[:int(n_samples * 0.9)], data[int(n_samples * 0.9):]
+# train_mask, test_mask = mask[:int(n_samples * 0.9)], mask[int(n_samples * 0.9):]
+
 num_train = train_data.shape[0] // args.batch_size
 num_test = test_data.shape[0] // args.batch_size
 
 # Convert to torch tensor
 train_data = torch.from_numpy(train_data)
 test_data = torch.from_numpy(test_data)
-train_mask = torch.from_numpy(train_mask).gt(-2)
-test_mask = torch.from_numpy(test_mask).gt(-2)
+train_mask = torch.from_numpy(train_mask).float()
+test_mask = torch.from_numpy(test_mask).float()
+
+
+class RA(nn.Module):
+    def __init__(self, params):
+        super(RA, self).__init__()
+        self.encoder = nn.Sequential(nn.Linear(n_features, params[0]), nn.ReLU(),
+                                     nn.Linear(params[0], params[1]), nn.ReLU())
+
+        self.decoder = nn.Sequential(nn.Linear(params[1], params[0]), nn.ReLU(),
+                                     nn.Linear(params[0], n_features),
+                                     nn.Softmax())
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x)) + x
 
 
 class CRA(nn.Module):
-    def __init__(self, dropout=.0):
+    def __init__(self, dropout=.0, num_ra=1):
         super(CRA, self).__init__()
         self.dropout = dropout
-        self.fc1 = nn.Linear(n_features, 400)
-        self.fc21 = nn.Linear(400, 20)
-        self.fc22 = nn.Linear(400, 20)
-        self.fc3 = nn.Linear(20, 400)
-        self.fc4 = nn.Linear(400, n_features)
-
-    def encode(self, x):
-        h1 = F.relu(self.fc1(x))
-        return self.fc21(h1), self.fc22(h1)
-
-    def reparametrize(self, mu, logvar):
-        std = logvar.mul(0.5).exp_()
-        if args.cuda:
-            eps = torch.cuda.FloatTensor(std.size()).normal_()
-        else:
-            eps = torch.FloatTensor(std.size()).normal_()
-        eps = Variable(eps)
-        return eps.mul(std).add_(mu)
-
-    def decode(self, z):
-        h3 = F.relu(self.fc3(z))
-        return self.fc4(h3)
+        self.ras = nn.ModuleList([RA((300, 100, 10)) for _ in range(num_ra)])
 
     def forward(self, x):
-        # Apply input dropout
-        x = F.dropout(x, p=self.dropout)
-        mu, logvar = self.encode(x)
-        z = self.reparametrize(mu, logvar)
-        return self.decode(z), mu, logvar
+        x_hat = x * Variable(torch.zeros(args.batch_size, n_features).bernoulli_(1 - self.dropout))
+        # x_hat = F.dropout(x, self.dropout, training=True)
+        # print(x_hat.eq(x).sum())
+
+        for ra in self.ras:
+            x_hat = ra(x_hat)
+        return x_hat
 
 
-model = CRA(dropout=args.dropout)
+model = CRA(dropout=args.dropout, num_ra=4)
 if args.cuda:
     model.cuda()
+print(model)
 
 
 def get_batch(source, mask, i, evaluation=False):
@@ -111,23 +113,15 @@ def get_batch(source, mask, i, evaluation=False):
 
 # Mean Squared Error loss for reconstruction
 reconstruction_loss = torch.nn.MSELoss()
+reconstruction_loss.sizeAverage = False
 
 
-def loss_function(recon_x, x, mu, logvar, mask):
-    recon_loss = reconstruction_loss(torch.masked_select(recon_x, mask),
-                                     torch.masked_select(x, mask))
+def loss_function(recon_x, x, mask):
+    recon_loss = reconstruction_loss(recon_x * mask, x * mask)
+    return recon_loss
 
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
-    KLD = torch.sum(KLD_element).mul_(-0.5)
-
-    return recon_loss + KLD
-
-
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+# Create optimizer
+optimizer = optim.Adam(model.parameters(), lr=1e-2)
 
 
 def train(epoch):
@@ -140,8 +134,8 @@ def train(epoch):
             data = data.cuda()
 
         optimizer.zero_grad()
-        recon_batch, mu, logvar = model(data)
-        loss = loss_function(recon_batch, data, mu, logvar, mask)
+        recon_batch = model(data)
+        loss = loss_function(recon_batch, data, mask)
         loss.backward()
         train_loss += loss.data[0]
         optimizer.step()
@@ -162,8 +156,8 @@ def test(epoch):
         data, mask = get_batch(test_data, test_mask, batch_idx, evaluation=True)
         if args.cuda:
             data = data.cuda()
-        recon_batch, mu, logvar = model(data)
-        test_loss += loss_function(recon_batch, data, mu, logvar, mask).data[0]
+        recon_batch = model(data)
+        test_loss += loss_function(recon_batch, data, mask).data[0]
 
     test_loss /= len(test_data)
     print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -175,12 +169,11 @@ for epoch in range(1, args.epochs + 1):
 
 # Plot result
 test_batch, test_mask_batch = get_batch(test_data, test_mask, 1, evaluation=True)
-recon_batch, mu, logvar = model(test_batch)
+recon_batch = model(test_batch)
 
-fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(30, 30))
-sns.heatmap(test_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 0], ax=ax[0, 0])
-sns.heatmap(recon_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 1], ax=ax[0, 1])
-sns.heatmap(test_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 2], ax=ax[1, 0])
-sns.heatmap(recon_batch.data.numpy().reshape(-1, n_bins, n_mods)[:, :, 2], ax=ax[1, 1])
+fig, ax = plt.subplots(nrows=2, ncols=6, figsize=(60, 20))
+for i in range(6):
+    sns.heatmap((test_batch * test_mask_batch).data.numpy().reshape(-1, n_bins, n_mods)[:, :, i], ax=ax[0, i])
+    sns.heatmap((recon_batch * test_mask_batch).data.numpy().reshape(-1, n_bins, n_mods)[:, :, i], ax=ax[1, i])
 
 plt.savefig('recon_heatmap')

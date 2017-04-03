@@ -25,7 +25,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--dropout', type=float, default=.3, metavar='dropout', help='input dropout')
+parser.add_argument('--dropout', type=float, default=.1, metavar='dropout', help='input dropout')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -97,8 +97,7 @@ class VAE(nn.Module):
         return F.sigmoid(self.fc4(h3))
 
     def forward(self, x):
-        # Apply input dropout
-        x = F.dropout(x, p=self.dropout)
+        x = F.dropout(x, p=self.dropout, training=True)
         mu, logvar = self.encode(x)
         z = self.reparametrize(mu, logvar)
         return self.decode(z), mu, logvar
