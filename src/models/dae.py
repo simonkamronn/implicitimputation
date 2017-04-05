@@ -1,12 +1,14 @@
 import torch
 import torch.utils.data
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-class RA(nn.Module):
-    def __init__(self, params, input_dim):
-        super(RA, self).__init__()
+class DAE(nn.Module):
+    def __init__(self, params, input_dim, dropout=.0):
+        super(DAE, self).__init__()
+        self.dropout = dropout
         params = (input_dim,) + tuple(params)
 
         self.encoder = nn.Sequential()
@@ -21,22 +23,16 @@ class RA(nn.Module):
             self.decoder.add_module('decoder_{}_linear'.format(str(idx)), nn.Linear(p1, p2))
             if idx < len(params) - 2:
                 self.decoder.add_module('decoder_{}_relu'.format(str(idx)), nn.ReLU())
+        self.decoder.add_module('decoder_{}_sigmoid'.format(str(idx)), nn.Sigmoid())
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, z):
+        return self.decoder(z)
 
     def forward(self, x):
-        return self.decoder(self.encoder(x)) + x
-
-
-class CRA(nn.Module):
-    def __init__(self, params, input_dim, dropout=.0, num_ra=1):
-        super(CRA, self).__init__()
-        self.params = params
-        self.input_dim = input_dim
-        self.dropout = dropout
-        self.ras = nn.ModuleList([RA(params, input_dim) for _ in range(num_ra)])
-
-    def forward(self, x):
-        x_hat = x * Variable(torch.zeros(x.size(0), self.input_dim).bernoulli_(1 - self.dropout))
-        for ra in self.ras:
-            x_hat = ra(x_hat)
-        return x_hat
-
+        # x = F.dropout(x, p=self.dropout, training=True)
+        x = x * Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
+        z = self.encode(x)
+        return self.decode(z)
