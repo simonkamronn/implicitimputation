@@ -1,11 +1,7 @@
-import argparse
 import torch
 import torch.utils.data
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 from torch.autograd import Variable
-from torch import np
 
 
 class VAE(nn.Module):
@@ -18,8 +14,7 @@ class VAE(nn.Module):
         self.encoder = nn.Sequential()
         for idx, (p1, p2) in enumerate(zip(params[:-2], params[1:-1])):
             self.encoder.add_module('encoder_{}_linear'.format(str(idx)), nn.Linear(p1, p2))
-            if idx < len(params) - 2:
-                self.encoder.add_module('encoder_{}_relu'.format(str(idx)), nn.ReLU())
+            self.encoder.add_module('encoder_{}_relu'.format(str(idx)), nn.ReLU())
 
         self.mu = nn.Linear(params[-2], params[-1])
         self.logvar = nn.Linear(params[-2], params[-1])
@@ -28,7 +23,7 @@ class VAE(nn.Module):
         self.decoder = nn.Sequential()
         for idx, (p1, p2) in enumerate(zip(params[:-1], params[1:])):
             self.decoder.add_module('decoder_{}_linear'.format(str(idx)), nn.Linear(p1, p2))
-            if idx < len(params) - 2:
+            if idx < len(params) - 1:
                 self.decoder.add_module('decoder_{}_relu'.format(str(idx)), nn.ReLU())
         self.decoder.add_module('decoder_{}_sigmoid'.format(str(idx)), nn.Sigmoid())
 
