@@ -68,13 +68,13 @@ def run(args):
 
     model = nn.Module()
     if args.model.lower() == 'vae':
-        model = VAE((200, 100, 10), input_dim=n_features, dropout=args.dropout, args=args)
-    elif args.model.lower() == 'cra':
-        model = CRAE((200, 100, 10), input_dim=n_features, dropout=args.dropout, num_blocks=2)
+        model = VAE((400, 200, 100), input_dim=n_features, dropout=args.dropout, args=args)
+    elif args.model.lower() == 'rae':
+        model = CRAE((400, 200, 50), input_dim=n_features, dropout=args.dropout, num_blocks=2)
     elif args.model.lower() == 'unet':
-        model = SUnet((400, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
+        model = SUnet((400, 200, 100, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
     else:
-        model = SDAE((400, 200, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
+        model = SDAE((400, 200, 100, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
 
     print(model)
 
@@ -163,9 +163,8 @@ def run(args):
 
     # Heatmap
     for i, mod in enumerate(('cpm', 'steps')):
-        opts = dict(colormap='Electric', title=mod)
-        vis.heatmap(test_batch[:, :, i], opts=opts)
-        vis.heatmap(recon_batch[:, :, i], opts=opts)
+        vis.heatmap(test_batch[:, :, i], opts=dict(colormap='Electric', title='true_' + mod))
+        vis.heatmap(recon_batch[:, :, i], opts=dict(colormap='Electric', title='recon_' + mod))
 
     # Errors
     vis.line(np.stack((train_loss[1:], test_loss[1:]), axis=1),

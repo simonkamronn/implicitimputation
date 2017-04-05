@@ -20,6 +20,10 @@ def load_data(random_split=True):
     # Require samples for all modalities
     data[np.isnan(data).sum(axis=2) > 0] = np.nan
 
+    # Remove outliers
+    # TODO: Remove outliers
+    # data[data > np.nanmean(data, axis=(0, 1), keepdims=True) + 2*np.nanstd(data, axis=(0, 1), keepdims=True)] = np.nan
+
     # Create mask
     mask = ~np.isnan(data).reshape(n_samples, n_features) * 1.
     print('Ratio of data to nan: {}'.format(np.mean(mask)))

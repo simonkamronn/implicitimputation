@@ -23,7 +23,7 @@ class VAE(nn.Module):
         self.decoder = nn.Sequential()
         for idx, (p1, p2) in enumerate(zip(params[:-1], params[1:])):
             self.decoder.add_module('decoder_{}_linear'.format(str(idx)), nn.Linear(p1, p2))
-            if idx < len(params) - 1:
+            if idx < len(params) - 2:
                 self.decoder.add_module('decoder_{}_relu'.format(str(idx)), nn.ReLU())
         self.decoder.add_module('decoder_{}_sigmoid'.format(str(idx)), nn.Sigmoid())
 
