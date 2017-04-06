@@ -74,7 +74,7 @@ def run(args):
     elif args.model.lower() == 'unet':
         model = SUnet((400, 200, 100, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
     else:
-        model = SDAE((400, 200, 100, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
+        model = SDAE((400, 100, 20), input_dim=n_features, dropout=args.dropout, num_blocks=2)
 
     print(model)
 
@@ -137,6 +137,7 @@ def run(args):
 
     # Plot result
     test_batch, test_mask_batch = get_batch(test_data, test_mask, 0, evaluation=True)
+
     if 'vae' in args.model:
         recon_batch, mu, logvar = model(test_batch)
     else:
@@ -163,8 +164,9 @@ def run(args):
 
     # Heatmap
     for i, mod in enumerate(('cpm', 'steps')):
-        vis.heatmap(test_batch[:, :, i], opts=dict(colormap='Electric', title='true_' + mod))
-        vis.heatmap(recon_batch[:, :, i], opts=dict(colormap='Electric', title='recon_' + mod))
+        vmax = np.max((test_batch[:, :, i].max(), recon_batch[:, :, i].max()))
+        vis.heatmap(test_batch[:, :, i], opts=dict(colormap='Electric', title='true_' + mod, xmin=0, xmax=float(vmax)))
+        vis.heatmap(recon_batch[:, :, i], opts=dict(colormap='Electric', title='recon_' + mod, xmin=0, xmax=float(vmax)))
 
     # Errors
     vis.line(np.stack((train_loss[1:], test_loss[1:]), axis=1),
