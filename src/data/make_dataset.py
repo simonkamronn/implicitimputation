@@ -134,7 +134,7 @@ class DataLoader:
     def save_all(self):
         data_dir = os.path.join(project_dir, 'data', 'interim', 'data.parq')
 
-        for att in ['screen', 'cpm', 'steps', 'activity', 'location_lat', 'location_lon']:
+        for att in ['cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon']:
             self.log(att)
             list_of_frames = list()
             for user in self._ga.done:
@@ -160,7 +160,7 @@ class DataLoader:
         for user, group in df.groupby(['user']):
             modality_data = list()
             modality_grouped = group.groupby('modality')
-            for modality in ('cpm', 'steps'):
+            for modality in ('cpm', 'steps', 'activity', 'screen'):
                 modality_data.append(modality_grouped.get_group(modality).drop(['modality'], axis=1))
 
             # We concatenate on dates to ensure the same dimension across modalities

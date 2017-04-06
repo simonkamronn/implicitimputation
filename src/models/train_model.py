@@ -20,6 +20,7 @@ from src.models.crae import CRAE
 from src.models.vae import VAE
 from src.models.dae import SDAE
 from src.models.unet import SUnet
+from src.models.avb import AVB
 from src.models.config import get_config
 
 
@@ -35,6 +36,7 @@ def run(args):
     n_bins = 288
     n_samples, n_features = train_data.shape
     n_mods = n_features // n_bins
+    modalities = ['cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon'][:n_mods]
     num_train = train_data.shape[0] // args.batch_size
     num_test = test_data.shape[0] // args.batch_size
 
@@ -73,6 +75,8 @@ def run(args):
         model = CRAE(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
     elif args.model.lower() == 'unet':
         model = SUnet(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
+    elif args.model.lower() == 'avb':
+        model = AVB(args.layers, input_dim=n_features, dropout=args.dropout)
     else:
         model = SDAE(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
 
@@ -147,7 +151,7 @@ def run(args):
     recon_batch = recon_batch.data.numpy().reshape(-1, n_bins, n_mods)
 
     fig, ax = plt.subplots(nrows=2, ncols=n_mods, figsize=(10 * n_mods, 20))
-    for i, mod in enumerate(('cpm', 'steps')):
+    for i, mod in enumerate(modalities):
         vmax = np.max((test_batch[:, :, i].max(), recon_batch[:, :, i].max()))
         sns.heatmap(test_batch[:, :, i], ax=ax[0, i], vmin=0, vmax=vmax)
         sns.heatmap(recon_batch[:, :, i], ax=ax[1, i], vmin=0, vmax=vmax)
@@ -163,7 +167,7 @@ def run(args):
     vis = Visdom(env=args.model)
 
     # Heatmap
-    for i, mod in enumerate(('cpm', 'steps')):
+    for i, mod in enumerate(modalities):
         vmax = np.max((test_batch[:, :, i].max(), recon_batch[:, :, i].max()))
         vis.heatmap(test_batch[:, :, i], opts=dict(colormap='Electric', title='true_' + mod, xmin=0, xmax=float(vmax)))
         vis.heatmap(recon_batch[:, :, i], opts=dict(colormap='Electric', title='recon_' + mod, xmin=0, xmax=float(vmax)))

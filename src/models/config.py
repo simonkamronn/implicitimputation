@@ -15,10 +15,10 @@ def get_config():
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
     parser.add_argument('--dropout', type=float, default=.5, metavar='D', help='input dropout')
-    parser.add_argument('--model', type=str, default='rae', metavar='M', help='Model selection')
+    parser.add_argument('--model', type=str, default='unet', metavar='M', help='Model selection')
     parser.add_argument('--layers', type=int, default=[400, 50], nargs='+', help='Units in each layer')
     parser.add_argument('--blocks', type=int, default=1, help='Number of stacked blocks')
-    parser.add_argument('--name', type=str, defaul='', help='Experiment name')
+    parser.add_argument('--name', type=str, default='', help='Experiment name')
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     return args
