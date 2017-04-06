@@ -68,13 +68,13 @@ def run(args):
 
     model = nn.Module()
     if args.model.lower() == 'vae':
-        model = VAE((400, 200, 100), input_dim=n_features, dropout=args.dropout, args=args)
+        model = VAE(args.layers, input_dim=n_features, dropout=args.dropout, args=args)
     elif args.model.lower() == 'rae':
-        model = CRAE((400, 200, 50), input_dim=n_features, dropout=args.dropout, num_blocks=2)
+        model = CRAE(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
     elif args.model.lower() == 'unet':
-        model = SUnet((400, 200, 100, 50), input_dim=n_features, dropout=args.dropout, num_blocks=1)
+        model = SUnet(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
     else:
-        model = SDAE((400, 100, 20), input_dim=n_features, dropout=args.dropout, num_blocks=2)
+        model = SDAE(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
 
     print(model)
 
@@ -173,6 +173,7 @@ def run(args):
              np.tile(np.arange(args.epochs - 1), (2, 1)).transpose(),
              opts=dict(legend=['train', 'test']))
 
+    return train_loss[-1], test_loss[-1]
 
 if __name__ == '__main__':
     run(get_config())

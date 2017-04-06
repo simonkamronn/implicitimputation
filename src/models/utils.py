@@ -18,7 +18,7 @@ def load_data(random_split=True):
     n_features = n_bins * n_mods
 
     # Require samples for all modalities
-    data[np.isnan(data).sum(axis=2) > 0] = np.nan
+    # data[np.isnan(data).sum(axis=2) > 0] = np.nan
 
     # Remove outliers
     # TODO: Remove outliers
