@@ -37,7 +37,8 @@ class CRAE_module(nn.Module):
         self.ras = nn.ModuleList([RAE_module(params, input_dim) for _ in range(num_blocks)])
 
     def forward(self, x):
-        x_hat = x * Variable(torch.zeros(x.size(0), self.input_dim).bernoulli_(1 - self.dropout))
+        noise = Variable(torch.zeros(x.size(0), self.input_dim).bernoulli_(1 - self.dropout))
+        x_hat = x * noise
         for ra in self.ras:
             x_hat = ra(x_hat)
         return x_hat

@@ -42,8 +42,9 @@ class SDAE_module(nn.Module):
         self.das = nn.Sequential(*[DAE_module(params, input_dim) for _ in range(num_blocks)])
 
     def forward(self, x):
-        x = x * Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
-        return self.das(x)
+        noise = Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
+        x = x * noise
+        return self.das(x), noise
 
 
 class SDAE(Base):

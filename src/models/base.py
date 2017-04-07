@@ -23,11 +23,12 @@ class Base:
         return self.recon_loss(recon_x * mask, x * mask)
 
     def eval_loss(self, x, mask):
-        return self.loss_function(self.model(x), x, mask).data[0]
+        recon_batch, noise = self.model(x)
+        return self.loss_function(recon_batch, x, mask).data[0]
 
     def forward(self, x, mask):
         self.reset_grad()
-        recon_batch = self.model(x)
+        recon_batch, noise = self.model(x)
         loss = self.loss_function(recon_batch, x, mask)
         loss.backward()
         self.optim.step()

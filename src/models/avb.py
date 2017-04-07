@@ -5,10 +5,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import os
 from torch.autograd import Variable
 from torchvision import datasets, transforms
-from .config import get_config
 
 
 train_loader = torch.utils.data.DataLoader(
@@ -60,7 +58,9 @@ class AVB:
         self.P_solver = optim.Adam(self.P.parameters(), lr=args.lr)
         self.T_solver = optim.Adam(self.T.parameters(), lr=args.lr)
 
-        self.recon_loss = nn.MSELoss(size_average=False)
+        # self.recon_loss = nn.MSELoss(size_average=False)
+        # self.recon_loss = nn.CrossEntropyLoss(size_average=False)
+        self.recon_loss = lambda x1, x2: F.binary_cross_entropy(x1, x2, size_average=False)
 
     def vae_step(self):
         self.Q_solver.step()
@@ -80,7 +80,10 @@ class AVB:
         t_prior = F.sigmoid(self.T(torch.cat([x, z], 1)))
         return -torch.mean(log(t_q) + log(1. - t_prior))
 
-    def forward(self, x):
+    def loss_function(self, recon_x, x, mask):
+        return self.recon_loss(recon_x * mask, x * mask)
+
+    def forward(self, x, mask=None):
         mb_size = x.size(0)
         eps = Variable(torch.randn(mb_size, eps_dim))
         z = Variable(torch.randn(mb_size, z_dim))
@@ -92,7 +95,7 @@ class AVB:
 
         # Get ELBO
         disc = torch.mean(-t_sample)
-        loglike = self.recon_loss(x_sample, X) / mb_size
+        loglike = self.recon_loss(x_sample, x) / mb_size
         elbo = -(disc + loglike)
 
         # Update VAE part
@@ -101,7 +104,7 @@ class AVB:
         model.reset_grad()
 
         # Discriminator loss
-        t_loss = model.discriminator_loss(X, eps, z)
+        t_loss = model.discriminator_loss(x, eps, z)
 
         # Update discriminator
         t_loss.backward()
@@ -111,11 +114,18 @@ class AVB:
         return elbo, t_loss
 
 if __name__ == '__main__':
+    import os
+    import sys
+
+    project_dir = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
+    sys.path.append(os.path.join(project_dir, 'src'))
+    from src.models.config import get_config
+
     model = AVB([], None, get_config())
 
     for it in range(10):
         for X, y in iter(train_loader):
-            X = Variable(X.view(mb_size, -1), volatile=False)
+            X = Variable(X.view(mb_size, -1))
             elbo, t_loss = model.forward(X)
 
             # Print and plot every now and then

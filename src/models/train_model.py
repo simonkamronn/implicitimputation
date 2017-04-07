@@ -1,7 +1,5 @@
 import torch
 import torch.utils.data
-import torch.nn as nn
-import torch.optim as optim
 from torch.autograd import Variable
 from torch import np
 
@@ -16,7 +14,7 @@ project_dir = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
 sys.path.append(os.path.join(project_dir, 'src'))
 
 from src.models.utils import load_data
-from src.models.crae import CRAE_module
+from src.models.crae import CRAE
 from src.models.vae import VAE
 from src.models.dae import SDAE
 from src.models.unet import SUnet
@@ -36,7 +34,7 @@ def run(args):
     n_bins = 288
     n_samples, n_features = train_data.shape
     n_mods = n_features // n_bins
-    modalities = ['cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon'][:n_mods]
+    modalities = ['cpm', 'steps', 'screen', 'location_lat', 'location_lon'][:n_mods]
     num_train = train_data.shape[0] // args.batch_size
     num_test = test_data.shape[0] // args.batch_size
 
@@ -46,23 +44,6 @@ def run(args):
     train_mask = torch.from_numpy(train_mask).float()
     test_mask = torch.from_numpy(test_mask).float()
 
-    # Mean Squared Error loss for reconstruction
-    reconstruction_loss = torch.nn.MSELoss(size_average=False)
-
-    if 'vae' in args.model:
-        def loss_function(recon_x, x, mu, logvar, mask):
-            recon_loss = reconstruction_loss(recon_x * mask, x * mask)
-
-            # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-            KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
-            KLD = torch.sum(KLD_element).mul_(-0.5)
-
-            return recon_loss + KLD
-    else:
-        def loss_function(recon_x, x, mask):
-            recon_loss = reconstruction_loss(recon_x * mask, x * mask)
-            return recon_loss
-
     def get_batch(source, mask, i, evaluation=False):
         data = Variable(source[i * args.batch_size:(i + 1) * args.batch_size], volatile=evaluation)
         _mask = Variable(mask[i * args.batch_size:(i + 1) * args.batch_size], volatile=evaluation)
@@ -71,7 +52,7 @@ def run(args):
     if args.model.lower() == 'vae':
         model = VAE(args.layers, input_dim=n_features, args=args)
     elif args.model.lower() == 'rae':
-        model = CRAE_module(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
+        model = CRAE(args.layers, input_dim=n_features, args=args)
     elif args.model.lower() == 'unet':
         model = SUnet(args.layers, input_dim=n_features, args=args)
     elif args.model.lower() == 'avb':
@@ -128,9 +109,13 @@ def run(args):
     test_batch, test_mask_batch = get_batch(test_data, test_mask, 0, evaluation=True)
 
     if 'vae' in args.model:
-        recon_batch, mu, logvar = model(test_batch)
+        recon_batch, mu, logvar, noise = model(test_batch)
     else:
-        recon_batch = model(test_batch)
+        recon_batch, noise = model(test_batch)
+
+    # Mask out known values
+    test_batch = test_batch * (1 - noise)
+    recon_batch = recon_batch * (1 - noise)
 
     test_batch = test_batch.data.numpy().reshape(-1, n_bins, n_mods)
     recon_batch = recon_batch.data.numpy().reshape(-1, n_bins, n_mods)
