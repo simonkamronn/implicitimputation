@@ -8,6 +8,7 @@ import matplotlib.gridspec as gridspec
 import os
 from torch.autograd import Variable
 from torchvision import datasets, transforms
+from .config import get_config
 
 
 train_loader = torch.utils.data.DataLoader(
@@ -32,7 +33,7 @@ def log(x):
 
 
 class AVB:
-    def __init__(self, lr):
+    def __init__(self, params, input_dim, args):
         # Encoder: q(z|x,eps)
         self.Q = torch.nn.Sequential(
             torch.nn.Linear(X_dim + eps_dim, h_dim),
@@ -55,9 +56,9 @@ class AVB:
             torch.nn.Linear(h_dim, 1)
         )
 
-        self.Q_solver = optim.Adam(self.Q.parameters(), lr=lr)
-        self.P_solver = optim.Adam(self.P.parameters(), lr=lr)
-        self.T_solver = optim.Adam(self.T.parameters(), lr=lr)
+        self.Q_solver = optim.Adam(self.Q.parameters(), lr=args.lr)
+        self.P_solver = optim.Adam(self.P.parameters(), lr=args.lr)
+        self.T_solver = optim.Adam(self.T.parameters(), lr=args.lr)
 
         self.recon_loss = nn.MSELoss(size_average=False)
 
@@ -79,7 +80,7 @@ class AVB:
         t_prior = F.sigmoid(self.T(torch.cat([x, z], 1)))
         return -torch.mean(log(t_q) + log(1. - t_prior))
 
-    def step(self, x):
+    def forward(self, x):
         mb_size = x.size(0)
         eps = Variable(torch.randn(mb_size, eps_dim))
         z = Variable(torch.randn(mb_size, z_dim))
@@ -109,37 +110,38 @@ class AVB:
 
         return elbo, t_loss
 
-model = AVB(lr=0.001)
+if __name__ == '__main__':
+    model = AVB([], None, get_config())
 
-for it in range(10):
-    for X, y in iter(train_loader):
-        X = Variable(X.view(mb_size, -1), volatile=False)
-        elbo, t_loss = model.step(X)
+    for it in range(10):
+        for X, y in iter(train_loader):
+            X = Variable(X.view(mb_size, -1), volatile=False)
+            elbo, t_loss = model.forward(X)
 
-        # Print and plot every now and then
-        if it % 1000 == 0:
-            print('Iter-{}; ELBO: {:.4}; T_loss: {:.4}'
-                  .format(it, -elbo.data[0], -t_loss.data[0]))
+            # Print and plot every now and then
+            if it % 1000 == 0:
+                print('Iter-{}; ELBO: {:.4}; T_loss: {:.4}'
+                      .format(it, -elbo.data[0], -t_loss.data[0]))
 
-            z = Variable(torch.randn(mb_size, z_dim))
-            samples = model.P(z).data.numpy()[:16]
+                z = Variable(torch.randn(mb_size, z_dim))
+                samples = model.P(z).data.numpy()[:16]
 
-            fig = plt.figure(figsize=(4, 4))
-            gs = gridspec.GridSpec(4, 4)
-            gs.update(wspace=0.05, hspace=0.05)
+                fig = plt.figure(figsize=(4, 4))
+                gs = gridspec.GridSpec(4, 4)
+                gs.update(wspace=0.05, hspace=0.05)
 
-            for i, sample in enumerate(samples):
-                ax = plt.subplot(gs[i])
-                plt.axis('off')
-                ax.set_xticklabels([])
-                ax.set_yticklabels([])
-                ax.set_aspect('equal')
-                plt.imshow(sample.reshape(28, 28), cmap='Greys_r')
+                for i, sample in enumerate(samples):
+                    ax = plt.subplot(gs[i])
+                    plt.axis('off')
+                    ax.set_xticklabels([])
+                    ax.set_yticklabels([])
+                    ax.set_aspect('equal')
+                    plt.imshow(sample.reshape(28, 28), cmap='Greys_r')
 
-            if not os.path.exists('out/'):
-                os.makedirs('out/')
+                if not os.path.exists('out/'):
+                    os.makedirs('out/')
 
-            plt.savefig('out/{}.png'
-                        .format(str(cnt).zfill(3)), bbox_inches='tight')
-            cnt += 1
-            plt.close(fig)
+                plt.savefig('out/{}.png'
+                            .format(str(cnt).zfill(3)), bbox_inches='tight')
+                cnt += 1
+                plt.close(fig)

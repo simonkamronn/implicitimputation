@@ -2,11 +2,13 @@ import torch
 import torch.utils.data
 import torch.nn as nn
 from torch.autograd import Variable
+from .base import Base
+from torch import optim
 
 
-class RAE(nn.Module):
+class RAE_module(nn.Module):
     def __init__(self, params, input_dim):
-        super(RAE, self).__init__()
+        super(RAE_module, self).__init__()
         params = (input_dim,) + tuple(params)
 
         self.encoder = nn.Sequential()
@@ -26,13 +28,13 @@ class RAE(nn.Module):
         return self.decoder(self.encoder(x)) + x
 
 
-class CRAE(nn.Module):
+class CRAE_module(nn.Module):
     def __init__(self, params, input_dim, dropout=.0, num_blocks=1):
-        super(CRAE, self).__init__()
+        super(CRAE_module, self).__init__()
         self.params = params
         self.input_dim = input_dim
         self.dropout = dropout
-        self.ras = nn.ModuleList([RAE(params, input_dim) for _ in range(num_blocks)])
+        self.ras = nn.ModuleList([RAE_module(params, input_dim) for _ in range(num_blocks)])
 
     def forward(self, x):
         x_hat = x * Variable(torch.zeros(x.size(0), self.input_dim).bernoulli_(1 - self.dropout))
@@ -40,3 +42,9 @@ class CRAE(nn.Module):
             x_hat = ra(x_hat)
         return x_hat
 
+
+class CRAE(Base):
+    def __init__(self, params, input_dim, args):
+        super(CRAE, self).__init__()
+        self.model = CRAE_module(params, input_dim, args.dropout, args.blocks)
+        self.optim = optim.Adam(self.model.parameters(), lr=args.lr)

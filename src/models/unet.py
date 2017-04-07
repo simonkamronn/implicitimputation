@@ -2,11 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+import torch.optim as optim
+from .base import Base
 
 
-class Unet(nn.Module):
+class Unet_module(nn.Module):
     def __init__(self, params, input_dim):
-        super(Unet, self).__init__()
+        super(Unet_module, self).__init__()
         params = (input_dim,) + tuple(params)
         self.output_activation = nn.Sigmoid()
 
@@ -42,12 +44,19 @@ class Unet(nn.Module):
         return self.decode(z) + x
 
 
-class SUnet(nn.Module):
+class SUnet_module(nn.Module):
     def __init__(self, params, input_dim, dropout=.0, num_blocks=1):
-        super(SUnet, self).__init__()
+        super(SUnet_module, self).__init__()
         self.dropout = dropout
-        self.das = nn.Sequential(*[Unet(params, input_dim) for _ in range(num_blocks)])
+        self.das = nn.Sequential(*[Unet_module(params, input_dim) for _ in range(num_blocks)])
 
     def forward(self, x):
-        x = x * Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
+        x *= Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
         return self.das(x)
+
+
+class SUnet(Base):
+    def __init__(self, params, input_dim, args):
+        super(SUnet, self).__init__()
+        self.model = SUnet_module(params, input_dim, args.dropout, args.blocks)
+        self.optim = optim.Adam(self.model.parameters(), lr=args.lr)

@@ -16,7 +16,7 @@ project_dir = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
 sys.path.append(os.path.join(project_dir, 'src'))
 
 from src.models.utils import load_data
-from src.models.crae import CRAE
+from src.models.crae import CRAE_module
 from src.models.vae import VAE
 from src.models.dae import SDAE
 from src.models.unet import SUnet
@@ -68,22 +68,17 @@ def run(args):
         _mask = Variable(mask[i * args.batch_size:(i + 1) * args.batch_size], volatile=evaluation)
         return data, _mask
 
-    model = nn.Module()
     if args.model.lower() == 'vae':
-        model = VAE(args.layers, input_dim=n_features, dropout=args.dropout, args=args)
+        model = VAE(args.layers, input_dim=n_features, args=args)
     elif args.model.lower() == 'rae':
-        model = CRAE(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
+        model = CRAE_module(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
     elif args.model.lower() == 'unet':
-        model = SUnet(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
+        model = SUnet(args.layers, input_dim=n_features, args=args)
     elif args.model.lower() == 'avb':
-        model = AVB(args.layers, input_dim=n_features, dropout=args.dropout)
+        model = AVB(args.layers, input_dim=n_features, args=args)
     else:
-        model = SDAE(args.layers, input_dim=n_features, dropout=args.dropout, num_blocks=args.blocks)
-
+        model = SDAE(args.layers, input_dim=n_features, args=args)
     print(model)
-
-    # Create optimizer over model parameters
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     def train(epoch):
         model.train()
@@ -94,22 +89,15 @@ def run(args):
             if args.cuda:
                 data = data.cuda()
 
-            optimizer.zero_grad()
-            if 'vae' in args.model:
-                recon_batch, mu, logvar = model(data)
-                loss = loss_function(recon_batch, data, mu, logvar, mask)
-            else:
-                recon_batch = model(data)
-                loss = loss_function(recon_batch, data, mask)
+            # Run model updates and collect loss
+            loss = model.forward(data, mask)
+            train_loss += loss
 
-            loss.backward()
-            train_loss += loss.data[0]
-            optimizer.step()
             if batch_idx % args.log_interval == 0:
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch, batch_idx * len(data), len(train_data),
                            100. * batch_idx / num_train,
-                           loss.data[0] / len(data)))
+                           loss / len(data)))
 
         print('====> Epoch: {} Average loss: {:.6f}'.format(
             epoch, train_loss / len(train_data)))
@@ -122,12 +110,9 @@ def run(args):
             data, mask = get_batch(test_data, test_mask, batch_idx, evaluation=True)
             if args.cuda:
                 data = data.cuda()
-            if 'vae' in args.model:
-                recon_batch, mu, logvar = model(data)
-                test_loss += loss_function(recon_batch, data, mu, logvar, mask).data[0]
-            else:
-                recon_batch = model(data)
-                test_loss += loss_function(recon_batch, data, mask).data[0]
+
+            # Evaluate batch on model
+            test_loss += model.eval_loss(data, mask)
 
         test_loss /= len(test_data)
         print('====> Test set loss: {:.6f}'.format(test_loss))

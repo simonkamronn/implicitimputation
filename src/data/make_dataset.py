@@ -160,7 +160,7 @@ class DataLoader:
         for user, group in df.groupby(['user']):
             modality_data = list()
             modality_grouped = group.groupby('modality')
-            for modality in ('cpm', 'steps', 'activity', 'screen'):
+            for modality in ('cpm', 'steps', 'screen'):
                 modality_data.append(modality_grouped.get_group(modality).drop(['modality'], axis=1))
 
             # We concatenate on dates to ensure the same dimension across modalities

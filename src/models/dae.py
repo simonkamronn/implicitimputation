@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from .base import Base
+import torch.optim as optim
 
 
-class DAE(nn.Module):
+class DAE_module(nn.Module):
     def __init__(self, params, input_dim):
-        super(DAE, self).__init__()
+        super(DAE_module, self).__init__()
         params = (input_dim,) + tuple(params)
 
         self.encoder = nn.Sequential()
@@ -33,12 +35,19 @@ class DAE(nn.Module):
         return self.decode(z)
 
 
-class SDAE(nn.Module):
+class SDAE_module(nn.Module):
     def __init__(self, params, input_dim, dropout=.0, num_blocks=1):
-        super(SDAE, self).__init__()
+        super(SDAE_module, self).__init__()
         self.dropout = dropout
-        self.das = nn.Sequential(*[DAE(params, input_dim) for _ in range(num_blocks)])
+        self.das = nn.Sequential(*[DAE_module(params, input_dim) for _ in range(num_blocks)])
 
     def forward(self, x):
         x = x * Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
         return self.das(x)
+
+
+class SDAE(Base):
+    def __init__(self, params, input_dim, args):
+        super(SDAE, self).__init__()
+        self.model = SDAE_module(params, input_dim, args.dropout, args.blocks)
+        self.optim = optim.Adam(self.model.parameters(), lr=args.lr)

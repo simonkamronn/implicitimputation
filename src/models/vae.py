@@ -2,11 +2,13 @@ import torch
 import torch.utils.data
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.optim as optim
+from .base import Base
 
 
-class VAE(nn.Module):
+class VAE_module(nn.Module):
     def __init__(self, params, input_dim, dropout=.0, args=None):
-        super(VAE, self).__init__()
+        super(VAE_module, self).__init__()
         self.args = args
         self.dropout = dropout
         params = (input_dim,) + tuple(params)
@@ -48,3 +50,30 @@ class VAE(nn.Module):
         mu, logvar = self.encode(x)
         z = self.reparametrize(mu, logvar)
         return self.decode(z), mu, logvar
+
+
+class VAE(Base):
+    def __init__(self, params, input_dim, dropout=.0, args=None):
+        super(VAE, self).__init__()
+        self.model = VAE_module(params, input_dim, dropout=.0, args=None)
+        self.optim = optim.Adam(self.model.parameters(), lr=args.lr)
+
+    def loss_function(self, recon_x, x, mu, logvar, mask):
+        recon_loss = self.recon_loss(recon_x * mask, x * mask)
+
+        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
+        KLD = torch.sum(KLD_element).mul_(-0.5)
+        return recon_loss + KLD
+
+    def eval_loss(self, x, mask):
+        recon_batch, mu, logvar = self.model(x)
+        return self.loss_function(recon_batch, x, mu, logvar, mask).data[0]
+
+    def forward(self, x, mask):
+        self.reset_grad()
+        recon_batch, mu, logvar = self.model(x)
+        loss = self.loss_function(recon_batch, x, mu, logvar, mask)
+        loss.backward()
+        self.optim.step()
+        return loss.data[0]
