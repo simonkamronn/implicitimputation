@@ -8,22 +8,8 @@ import matplotlib.gridspec as gridspec
 from torch.autograd import Variable
 from torchvision import datasets, transforms
 
-
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=True, download=True, transform=transforms.ToTensor()),
-    batch_size=32, shuffle=True, **{})
-test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-    batch_size=32, shuffle=True, **{})
-
-mb_size = 32
 z_dim = 10
 eps_dim = 4
-X_dim = 28*28
-y_dim = 1
-h_dim = 128
-cnt = 0
-lr = 1e-3
 
 
 def log(x):
@@ -32,35 +18,47 @@ def log(x):
 
 class AVB:
     def __init__(self, params, input_dim, args):
+        self.dropout = args.dropout
+
         # Encoder: q(z|x,eps)
         self.Q = torch.nn.Sequential(
-            torch.nn.Linear(X_dim + eps_dim, h_dim),
+            torch.nn.Linear(input_dim + eps_dim, params[0]),
             torch.nn.ReLU(),
-            torch.nn.Linear(h_dim, z_dim)
+            torch.nn.Linear(params[0], z_dim)
         )
 
         # Decoder: p(x|z)
         self.P = torch.nn.Sequential(
-            torch.nn.Linear(z_dim, h_dim),
+            torch.nn.Linear(z_dim, params[0]),
             torch.nn.ReLU(),
-            torch.nn.Linear(h_dim, X_dim),
+            torch.nn.Linear(params[0], input_dim),
             torch.nn.Sigmoid()
         )
 
         # Discriminator: T(X, z)
         self.T = torch.nn.Sequential(
-            torch.nn.Linear(X_dim + z_dim, h_dim),
+            torch.nn.Linear(input_dim + z_dim, params[0]),
             torch.nn.ReLU(),
-            torch.nn.Linear(h_dim, 1)
+            torch.nn.Linear(params[0], 1)
         )
 
         self.Q_solver = optim.Adam(self.Q.parameters(), lr=args.lr)
         self.P_solver = optim.Adam(self.P.parameters(), lr=args.lr)
         self.T_solver = optim.Adam(self.T.parameters(), lr=args.lr)
 
-        # self.recon_loss = nn.MSELoss(size_average=False)
+        self.recon_loss = nn.MSELoss(size_average=False)
         # self.recon_loss = nn.CrossEntropyLoss(size_average=False)
-        self.recon_loss = lambda x1, x2: F.binary_cross_entropy(x1, x2, size_average=False)
+        # self.recon_loss = lambda x1, x2: F.binary_cross_entropy(x1, x2, size_average=False)
+
+    def train(self):
+        self.Q.train()
+        self.P.train()
+        self.T.train()
+
+    def eval(self):
+        self.Q.eval()
+        self.P.eval()
+        self.T.eval()
 
     def vae_step(self):
         self.Q_solver.step()
@@ -83,7 +81,7 @@ class AVB:
     def loss_function(self, recon_x, x, mask):
         return self.recon_loss(recon_x * mask, x * mask)
 
-    def forward(self, x, mask=None):
+    def sample(self, x):
         mb_size = x.size(0)
         eps = Variable(torch.randn(mb_size, eps_dim))
         z = Variable(torch.randn(mb_size, z_dim))
@@ -92,26 +90,49 @@ class AVB:
         z_sample = self.Q(torch.cat([x, eps], 1))
         x_sample = self.P(z_sample)
         t_sample = self.T(torch.cat([x, z_sample], 1))
+        return z_sample, x_sample, t_sample, eps, z
+
+    def sample_recon(self, x):
+        noise = Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
+        x = x * noise
+
+        z_sample, x_sample, t_sample, eps, z = self.sample(x)
+        return x_sample, noise
+
+    def eval_loss(self, x, mask):
+        recon_batch, noise = self.sample_recon(x)
+        return self.loss_function(recon_batch, x, mask).data[0]
+
+    def forward(self, x, mask=None):
+        # Apply noise to the input
+        noise = Variable(torch.zeros(x.size(0), x.size(1)).bernoulli_(1 - self.dropout))
+        x_noisy = x * noise
+
+        # Sample from the model
+        z_sample, x_sample, t_sample, eps, z = self.sample(x_noisy)
 
         # Get ELBO
         disc = torch.mean(-t_sample)
-        loglike = self.recon_loss(x_sample, x) / mb_size
+        loglike = self.loss_function(x_sample, x, mask) / x.size(0)
         elbo = -(disc + loglike)
 
         # Update VAE part
         elbo.backward()
-        model.vae_step()
-        model.reset_grad()
+        self.vae_step()
+        self.reset_grad()
 
         # Discriminator loss
-        t_loss = model.discriminator_loss(x, eps, z)
+        t_loss = self.discriminator_loss(x_noisy, eps, z)
 
         # Update discriminator
         t_loss.backward()
-        model.discriminator_step()
-        model.reset_grad()
+        self.discriminator_step()
+        self.reset_grad()
 
-        return elbo, t_loss
+        return (elbo + t_loss).data[0]
+
+    def __call__(self, *input, **kwargs):
+        return self.sample_recon(*input, **kwargs)
 
 if __name__ == '__main__':
     import os
@@ -121,7 +142,16 @@ if __name__ == '__main__':
     sys.path.append(os.path.join(project_dir, 'src'))
     from src.models.config import get_config
 
-    model = AVB([], None, get_config())
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=True, download=True, transform=transforms.ToTensor()),
+        batch_size=32, shuffle=True, **{})
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
+        batch_size=32, shuffle=True, **{})
+
+    cnt = 0
+    mb_size = 32
+    model = AVB([10], 28*28, get_config())
 
     for it in range(10):
         for X, y in iter(train_loader):
@@ -151,7 +181,6 @@ if __name__ == '__main__':
                 if not os.path.exists('out/'):
                     os.makedirs('out/')
 
-                plt.savefig('out/{}.png'
-                            .format(str(cnt).zfill(3)), bbox_inches='tight')
+                plt.savefig('out/{}.png'.format(str(cnt).zfill(3)), bbox_inches='tight')
                 cnt += 1
                 plt.close(fig)

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
 from torch.autograd import Variable
-
+from tensorflow.examples.tutorials.mnist import input_data
 
 mnist = input_data.read_data_sets('../../MNIST_data', one_hot=True)
 mb_size = 32

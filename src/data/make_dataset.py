@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import click
 import logging
 from dotenv import find_dotenv, load_dotenv
 import pickle
@@ -33,6 +31,7 @@ class DataLoader:
         self._activity = self._ga.get_activity()
         self._steps = self._ga.get_steps()
         self._screen = self._ga.get_screen()
+        self.modalities = ('cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon')
 
     @staticmethod
     def save_scalers(user, scalers):
@@ -53,7 +52,7 @@ class DataLoader:
 
         cpm = load_smartphone_cpm(user)
         cpm = fill_df_with_datetime_vars(cpm)
-        cpm = cpm.pivot_table(index='date', columns='5min', values='cpm', aggfunc=np.sum)
+        cpm = cpm.pivot_table(index='date', columns='5min', values='cpm', aggfunc='sum')
         return cpm
 
     def load_location_lat(self, user):
@@ -76,6 +75,22 @@ class DataLoader:
         activity = self._activity.copy()
         activity = activity[activity.user == user]
         activity = activity[activity.confidence > 70]
+
+        # Remove still, tilting and unknown
+        activity[activity == 3] = np.nan
+        activity[activity == 4] = np.nan
+        activity[activity == 5] = np.nan
+        activity[activity == 6] = np.nan
+        activity = activity.dropna()
+
+        # Reduce walking and running indices
+        activity = activity.replace({'activity': {7.: 3., 8.: 4.}})
+
+        # Add descriptions
+        # act_labels = ['IN_VEHICLE', 'ON_BICYCLE', 'ON_FOOT', 'STILL', 'UNKNOWN', 'TILTING', 'UNKNOWN2', 'WALKING',
+        #               'RUNNING']
+        # activity['activity_str'] = [act_labels[int(activity)] for activity in activity['activity']]
+
         activity = fill_df_with_datetime_vars(activity)
         activity = activity.pivot_table(index='date', columns='5min', values='activity', aggfunc='median')
         return activity
@@ -84,9 +99,10 @@ class DataLoader:
         steps = self._steps.copy()
         steps = steps[steps.user == user]
         steps = remove_drops(steps.step_count).to_frame()
-        steps = steps[steps.step_count < steps.step_count.mean() + 2 * steps.step_count.std()]
+        # steps = steps[steps.step_count < steps.step_count.mean() + 2 * steps.step_count.std()]
         steps = fill_df_with_datetime_vars(steps)
         steps = steps.pivot_table(index='date', columns='5min', values='step_count', aggfunc='sum')
+        steps = steps.clip(0, 2000)
         return steps
 
     def load_screen(self, user):
@@ -102,7 +118,8 @@ class DataLoader:
         steps = self.load_steps(user)
         activity = self.load_activity(user)
         screen = self.load_screen(user)
-        location_lat, location_lon = self.load_location(user)
+        location_lat = self.load_location_lat(user)
+        location_lon = self.load_location_lon(user)
 
         # Limit data to inner bounds
         first_idx = np.max(pd.to_datetime((cpm.index[0],
@@ -152,21 +169,31 @@ class DataLoader:
                   append=os.path.exists(data_dir))
 
     @staticmethod
-    def convert_to_npy(df=None, save=True):
+    def convert_to_npy(df=None, save=True, modalities=None):
         if df is None:
             df = ParquetFile(os.path.join(project_dir, 'data', 'interim', 'data.parq')).to_pandas().set_index('date')
 
         user_data = list()
-        for user, group in df.groupby(['user']):
-            modality_data = list()
-            modality_grouped = group.groupby('modality')
-            for modality in ('cpm', 'steps', 'screen'):
-                modality_data.append(modality_grouped.get_group(modality).drop(['modality'], axis=1))
+        for user, group in df.groupby('user'):
+            # Select activity
+            activity = group[group['modality'] == 'cpm']
 
-            # We concatenate on dates to ensure the same dimension across modalities
-            user_data.append(pd.concat(modality_data, axis=1).values
-                             .reshape(-1, len(modality_data), 289)
-                             .transpose(0, 2, 1))
+            # Require 8 hours of data
+            activity = activity[pd.isnull(activity).sum(axis=1) < (16 * 12)]
+
+            if activity.modality.count() >= 120:
+                group = group.loc[activity.index.tolist()]
+
+                # Extract modalities
+                modality_data = list()
+                modality_grouped = group.groupby('modality')
+                for modality in modalities:
+                    modality_data.append(modality_grouped.get_group(modality).drop(['modality'], axis=1))
+
+                # We concatenate on dates to ensure the same dimension across modalities
+                user_data.append(pd.concat(modality_data, axis=1).values
+                                 .reshape(-1, len(modality_data), 289)
+                                 .transpose(0, 2, 1))
 
         data = np.concatenate(user_data, axis=0)
         if save:
@@ -182,10 +209,10 @@ def main():
     logger = logging.getLogger(__name__)
     logger.info('Making final data set from raw data')
 
-    # dataloader = DataLoader(logger)
-    # dataloader.save_all()
+    dataloader = DataLoader(logger)
+    dataloader.save_all()
 
-    DataLoader.convert_to_npy()
+    DataLoader.convert_to_npy(modalities=('cpm', 'steps', 'screen', 'location_lat', 'location_lon', 'activity'))
 
 
 if __name__ == '__main__':
