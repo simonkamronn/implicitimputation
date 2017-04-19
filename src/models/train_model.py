@@ -13,7 +13,7 @@ import sys
 project_dir = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
 sys.path.append(os.path.join(project_dir, 'src'))
 
-from src.models.utils import load_data
+from src.models.utils import load_data, load_toy_data
 from src.models.crae import CRAE
 from src.models.vae import VAE
 from src.models.dae import SDAE
@@ -29,6 +29,7 @@ def run(args):
 
     # Load data
     train_data, test_data, train_mask, test_mask, user_list = load_data(random_split=True)
+    # train_data, test_data, train_mask, test_mask, user_list = load_toy_data()
 
     # Params
     # n_bins = 288
@@ -115,8 +116,8 @@ def run(args):
         recon_batch, noise = model(test_batch, test_mask_batch)
 
     # Mask out known values
-    test_batch = test_batch * (1 - noise) * test_mask_batch
-    recon_batch = recon_batch * (1 - noise) * test_mask_batch
+    test_batch = test_batch * test_mask_batch
+    recon_batch = recon_batch * test_mask_batch  # * (1 - noise)
 
     test_batch = test_batch.data.numpy().reshape(-1, n_bins, n_mods)
     recon_batch = recon_batch.data.numpy().reshape(-1, n_bins, n_mods)
@@ -141,7 +142,7 @@ def run(args):
     for i, mod in enumerate(modalities):
         vmax = np.max((test_batch[:, :, i].max(), recon_batch[:, :, i].max()))
         vis.heatmap(test_batch[:, :, i],
-                    opts=dict(colormap='Electric', title='true_' + mod, xmin=0, xmax=float(vmax)))  # , xmax=float(vmax)
+                    opts=dict(colormap='Electric', title='true_' + mod, xmin=0, xmax=float(vmax)))
         vis.heatmap(recon_batch[:, :, i],
                     opts=dict(colormap='Electric', title='recon_' + mod, xmin=0, xmax=float(vmax)))
     vis.heatmap(((1 - noise) * test_mask_batch)[:, :, 0].data.numpy(), opts=dict(title='mask'))

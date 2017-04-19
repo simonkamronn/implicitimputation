@@ -144,7 +144,7 @@ class DataLoader:
 
     def load_all(self):
         data = list()
-        for user in self._ga.done:
+        for user in self._ga.users:
             data.append(self.collect_modalities_in_panel(user).as_matrix())
         return np.concatenate(data, axis=0)
 
@@ -154,7 +154,7 @@ class DataLoader:
         for att in ['cpm', 'steps', 'activity', 'screen', 'location_lat', 'location_lon']:
             self.log(att)
             list_of_frames = list()
-            for user in self._ga.done:
+            for user in self._ga.users:
                 self.log(user)
                 list_of_frames.append(getattr(self, 'load_{}'.format(att))(user).assign(user=user))
 

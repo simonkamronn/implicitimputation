@@ -20,7 +20,7 @@ def load_data(random_split=True):
     data[np.isnan(data).sum(axis=2) > 0, :] = np.nan
 
     # Require a certain amount of samples during a day
-    data[np.isnan(data[:, :, 0]).sum(axis=1) > 250, :, :] = np.nan
+    # data[np.isnan(data[:, :, 0]).sum(axis=1) > 250, :, :] = np.nan
 
     # Select data
     data = data[(~np.isnan(data)).sum(axis=(1, 2)) > 0]
@@ -44,15 +44,22 @@ def load_data(random_split=True):
     data[data[:, :, 0] > 150000, 0] = 1500000
 
     # Log transform data
-    data += 1
-    data = np.log(data)
+    # data += 1
+    # data = np.log(data)
 
     # Fill nan
     data[np.isnan(data)] = 0
     data[data == -np.inf] = 0
 
+    # Reshape to hour metrics
+    data = data.reshape((-1, 24, 12, n_mods)).sum(axis=2)
+    mask = mask.reshape((-1, 24, 12, n_mods)).max(axis=2)
+
+    # Data shapes
+    n_samples, n_bins, n_mods = data.shape
+
     # Normalize to 0 - 1
-    data = MinMaxScaler().fit_transform(data.reshape(n_samples * n_bins, n_mods)).reshape(n_samples, n_bins, n_mods)
+    # data = MinMaxScaler().fit_transform(data.reshape(n_samples * n_bins, n_mods)).reshape(n_samples, n_bins, n_mods)
 
     # Replace nans with -1
     data[mask == 0] = -1
@@ -64,6 +71,20 @@ def load_data(random_split=True):
         train_mask, test_mask = mask[:int(n_samples * 0.9)], mask[int(n_samples * 0.9):]
 
     return train_data, test_data, train_mask, test_mask, user_list
+
+
+def load_toy_data():
+    train_data = np.tensordot(np.random.randint(1, 100, size=(6400, 1)),
+                              np.ones((1, 100)), axes=(1, 0)).astype(np.float32)
+    train_data = np.stack((train_data, train_data*10), axis=2)
+
+    test_data = np.stack((np.ones((640, 100), dtype=np.float32),
+                          np.ones((640, 100), dtype=np.float32)*10), axis=2)
+
+    train_mask = np.random.binomial(1, 1, (6400, 100, 2))
+    test_mask = np.random.binomial(1, 1, (6400, 100, 2))
+
+    return train_data, test_data, train_mask, test_mask, None
 
 
 class InfiniteDataLoader(object):
